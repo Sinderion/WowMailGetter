@@ -174,8 +174,10 @@ end
 		local j;
 		for i=1, ball.inbox_items do
 			WMG_CHECKED[i] = {};
+			WMG_PROFILE[i] = {};
 			for j = 1, 12 do
 				WMG_CHECKED[i][j] = 0;
+				WMG_PROFILE[i][j] = 0;
 			end
 		end
 
@@ -241,7 +243,7 @@ function ZLM_iHoover_Juggle(eventframe)
 				WMGE("4.3 Found item at Index "..ball.Index.." position: "..k);
 				WMGE(unpack(ball.currentProfile[k]),1);
 				ball.itemIndex = k;
-				--ball.currentProfile[k] = nil;
+				ball.currentProfile[k] = nil;
 				break;
 			else
 				WMGE("No value key: "..k.." = "..tostring(v));
@@ -256,11 +258,12 @@ function ZLM_iHoover_Juggle(eventframe)
 		WMGE("4.4 Registering BAG_UPDATE and taking item ".. ball.itemIndex.." from inbox item ".. ball.Index,1);
 		ball.countToTwo = 1; -- Prime the oscillator.
 		WMG_CHECKED[ball.Index][ball.itemIndex] = 1;
-		ball.itemIndex = -1; -- reset
 
 		--C_Timer.After(0.1,function() events:BAG_UPDATE(eventframe) end); -- DEBUG ONLY
-		eventframe:RegisterEvent("BAG_UPDATE");
+		WMG_FRAME:RegisterEvent("BAG_UPDATE");
 		TakeInboxItem(ball.Index,ball.itemIndex);
+		ball.itemIndex = -1; -- reset
+
 		-- if we're at the end of the message
 
 	else
