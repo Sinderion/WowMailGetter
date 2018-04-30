@@ -1,0 +1,7 @@
+## Interface: 70300
+## Title: WowMailGetter
+## Notes: Not an addon, just testing
+## Author: Sinderion@Shadow Council
+## Version: 0.01
+
+WowMailGetter.lua
