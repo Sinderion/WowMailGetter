@@ -53,10 +53,10 @@ function Generic_EventLoader()
 
 	function events:BAG_UPDATE(...)
 		
-		WMGE("BAG_UPDATE",1);
+		--WMGE("BAG_UPDATE",1);
 	--	ZLM_iHoover_Oscillator(frame,...);
 		WMG_FRAME:UnregisterEvent("BAG_UPDATE");
-		ZLM_iHoover_Juggle(self);
+		C_Timer.After(0.1, function() ZLM_iHoover_Juggle(self) end);
 	end
 
 	-- ** /Events
@@ -124,12 +124,13 @@ end
   -- Mail info doesn't adjust dynamically. You've gotta paint yourself a picture, holes, treasure and all.
 function ZLM_MessageProfile(Index)
 
-	WMGE("4.2 Profiling message.");
+
 	local ball = ZLM_iHoover_SmartNozzle;
 	--Target mailbox item/index CAN be passed to this function as a utility, otherwise it just uses the async tracking variable.
 	local Index = Index or ball.Index;
 	local i;
 	local profile = {};
+		WMGE("4.2 Profiling message. Index: "..tostring(Index));
 
 	local packageIcon, stationeryIcon, sender, subject, money, CODAmount, daysLeft, hasItem, wasRead, wasReturned, 
 			textCreated, canReply, isGM = GetInboxHeaderInfo(ball.Index);
@@ -139,11 +140,11 @@ function ZLM_MessageProfile(Index)
 			
 			local name, itemID, itemTexture, count, canUse, quality = GetInboxItem(Index, i)
 			if itemID then
-				WMGE("Mail "..Index.." item "..i.." = "..name);
+				--WMGE("Mail "..Index.." item "..i.." = "..name);
 				profile[i] = {sender, itemID, count, name};  -- for easy unpack()'ing into the tallywhacker function arguments. 
 				WMG_PROFILE[Index][i] = 1; -- debug
 			else
-				WMGE("Mail "..Index.." item slot "..i.." is empty.");
+				--WMGE("Mail "..Index.." item slot "..i.." is empty.");
 				profile[i] = 0; -- nil might mess things up for array?
 				WMG_PROFILE[Index][i] = 0; -- debug
 			end
@@ -206,7 +207,7 @@ function ZLM_iHoover_Juggle(eventframe)
 	--WMGE("4. Juggling. Index: "..ball.Index.." itemIndex: "..ball.itemIndex,1);
 	-- If we're starting a new mail, check bag space and get the profile of the next mail message with attachments.			
 	if ball.itemIndex == 1 or (type(ball.currentProfile) ~= "table") then
-		WMGE("4.1 Starting a new mail.",1);
+		WMGE("4.1 Starting a new mail. Index = "..tostring(ball.Index + 1),1);
 		if ZLM_NoBagSpace() then
 			WMGE("5.0 Not enough room in bags.");
 			-- Reset	
@@ -215,8 +216,9 @@ function ZLM_iHoover_Juggle(eventframe)
 
 		-- Dig till we find something shiney or hit bedrock.
 		repeat
-			WMGE("4.2In profiling loop.",1);
+			
 			ball.Index = ball.Index + 1;
+			WMGE("4.2In profiling loop. Index:" ..tostring(ball.Index),1);
 			ball.currentProfile = ZLM_MessageProfile(); -- could call it with ball.Index argument, but it uses the async tracking variable automatically anyways.
 		until (type(ball.currentProfile) == "table") or ball.Index > ball.inbox_items; -- 'currentprofile' is nil if there are no attachments, and if we reach the end we're done.
 
@@ -224,7 +226,7 @@ function ZLM_iHoover_Juggle(eventframe)
 
 		-- If we're done, bail.
 		if ball.Index > ball.inbox_items then
-			WMGE("ball.Index > ball.inbox_items",1);
+			WMGE("ball.Index > ball.inbox_items. " .. tostring(ball.Index).." > " .. tostring(ball.inbox_items),1);
 			return ZLM_iHoover_Cleanup(eventframe);
 		end
 	end
@@ -241,21 +243,21 @@ function ZLM_iHoover_Juggle(eventframe)
 		for k, v in pairs(ball.currentProfile) do
 			if (type(v) == "table") then
 				WMGE("4.3 Found item at Index "..ball.Index.." position: "..k);
-				WMGE(unpack(ball.currentProfile[k]),1);
+				--WMGE(table.concat(ball.currentProfile[k]," "),1);
 				ball.itemIndex = k;
-				ball.currentProfile[k] = nil;
+				ball.currentProfile[k] = 0;
 				break;
 			else
-				WMGE("No value key: "..k.." = "..tostring(v));
+				--WMGE("No value key: "..k.." = "..tostring(v));
 			
 			end
-			WMGE("Digging..");
+			--WMGE("Digging..");
 		end
 	end
 	if ball.itemIndex > 0 then
 		--Record, register for BAG_UPDATE, take item. End. The action of recieving the item(event:BAG_UPDATE) will kick the process off again.
 		--ZLM_TallyWhacker:REcordDonation(unpack(ball.currentProfile[ball.itemIndex]));
-		WMGE("4.4 Registering BAG_UPDATE and taking item ".. ball.itemIndex.." from inbox item ".. ball.Index,1);
+		WMGE("4.4 Taking item, Index "..ball.Index.." position: "..ball.itemIndex);
 		ball.countToTwo = 1; -- Prime the oscillator.
 		WMG_CHECKED[ball.Index][ball.itemIndex] = 1;
 
