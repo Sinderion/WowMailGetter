@@ -1,330 +1,295 @@
--- Debug
-WMGEVERBOSE = 0;
-WMGEDEBUG = 4;
-LRLASTMEM = 0;
 
-WMG_DEBUG_TAKECOUNT = 0;
-WMG_DEBUG_RECIEVECOUNT = 0;
-WMG_PROFILE = {};
-WMG_CHECKED = {};
+ZLM = LibStub("AceAddon-3.0"):NewAddon("ZatenkeinsLotteryManager", "AceConsole-3.0", "AceEvent-3.0");
+ZLM.Mail = {};
+ZLM.Mail.MailDelay = 0.1; -- Timer delay for taking mail. May need tuning.
+ZLM.Mail.NoDelay = 0.001; -- Timer delay for general multi-threaded work.
+-- Fake function
+function ZLM:RecordDonation() print("You recorded shit"); end
 
 
-function WMGE(sError, iDebug, iVerbose)
+-- ==========================================================================
+--					Mail crap for Zatenkeins Lottery Manager
+-- ==========================================================================
 
-	iDebug = iDebug or 4;
-	iVerbose = iVerbose or 0;
+ZLM.Mail = {};
+ZLM.Mail.MailDelay = 0.1; -- Timer delay for taking mail. May need tuning.
+ZLM.Mail.NoDelay = 0.001; -- Timer delay for general multi-threaded work.
+ZLM.Mail.Snapshots = {};
+ZLM.Mail.Snapshots.Bags = {};
+--ZLM.Mail.CheckStatus = "IDLE";   -- "IDLE"  "WAITING" "CONFIRMED" "PROCESSING"
+ZLM.Mail.Current = {};
+ZLM.Mail.Current.ItemID = 0;
+ZLM.Mail.Current.Count = 0;       -- count of said item in processing.
+ZLM.Mail.Current.Sender = 0;
+ZLM.Mail.Current.Index = 0;
+ZLM.Mail.Current.ItemIndex = 0;
+ZLM.Mail.Snapshots.Bags.Before = 0;
+ZLM.Mail.Snapshots.Bags.After = 0;
 
+-- Sinderion -> Sinderion-ShadowCouncil (add server name to same-server sender);   Xaionics-BlackwaterRaiders -> Xaionics-BlackwaterRaiders (no change if it's already full)
+function ZLM.Mail:Fullname(name)
 
+		--insert code here to return the name-server name no matter the name given, assuming the argument is a real name, return nil if not a real player name.
+		-- Possibly tuck legit name validation in here, since RP and other mail usuallly has spaces in the name.
 
-	sError = sError or "UNKNOWN_ERROR_AMG";
+	return name;
 
-	-- This should mean WMGE("Broken Link", 1) will show at level debug 1 and above
-	--    and WMGE("Odd Exception occurance in roster.", 0, 2) should work at debug 
-	if (iVerbose > 0 and iVerbose <= WMGEVERBOSE) or (iDebug > 0 and iDebug <= WMGEDEBUG) or iDebug == 4 then
-		DEFAULT_CHAT_FRAME:AddMessage("\124cFFFF0000Live Roster Error:\124r".. tostring(sError));
-	end
-		
-end
-
--- In init code
-WMG_FRAME = CreateFrame("Frame"); -- Don't think it needs a name. In the event functions, 'self' should point to the frame if necessary.
-local events = {};  -- Store event functions named/categorized by their event text, differentiated by event: tag.
-ZLM_iHoover_SmartNozzle = {};
-
-
-  -- Sketchy structure to make things pretty in the editor.
-function Generic_EventLoader()
-
-	-- *** Events Framework header --
-					-- Event:PLAYER_ENTERING_WORLD   takes the place of a custom named function for readability and automated event registration.
-					-- events object and frame would be created here, I just moved them outside the function. 
-	-- *** /Events Framework header --
-
-	-- ** Events ** Declared here, to be tallied after.
-
-	function events:MAIL_SHOW(...)
-		
-		WMGE("2. MAIL_SHOW caught.",1);
-		C_Timer.After(2,function() ZLM_iHoover_Start(frame) end);
-
-		
-
-	end
-
-	function events:BAG_UPDATE(...)
-		
-		--WMGE("BAG_UPDATE",1);
-	--	ZLM_iHoover_Oscillator(frame,...);
-		WMG_FRAME:UnregisterEvent("BAG_UPDATE");
-		C_Timer.After(0.1, function() ZLM_iHoover_Juggle(self) end);
-	end
-
-	-- ** /Events
-
-	-- ** Events framework tail.
-	WMG_FRAME:SetScript("OnEvent", function(self, event, ...)
-		events[event](self, ...); -- call one of the functions above
-		end);
-
-
-	for k, v in pairs(events) do
-
-		-- Skip some events if necessary for now.	
-		if k == "BAG_UPDATE" then
-
-		else
-
-			WMG_FRAME:RegisterEvent(k); -- Register all events for which handlers have been defined. Ezpz since they're named after their event string aWMGEady.
-		end
-	end
-	WMGE("1. Events loaded.",1);
--- ** /Events framework tail.
 
 end
 
 
--- ** Utility functions.
-
- function ZLM_NoBagSpace()
+function ZLM.Mail:NoBagSpace()
 	local s=0 
 	for i=1,5 do
 		s=s+GetContainerNumFreeSlots(i-1)
 	end
-	return s < 13;
- end
-
-  -- Only activate on the correct BAG_UPDATE event. Only let stuff in when we're ready to process.
-  -- Suddenly appears unecessary. Not sure why.
-function ZLM_iHoover_Oscillator(eventframe,...)
-	-- grab the tracking object.
-	local ball = ZLM_iHoover_SmartNozzle;
-
-	if ball.countToTwo == -1 then
-			-- -1 means we're not waiting for update, do nothing.
-			WMGE("Caught BAG_UPDATE when not waiting for an update. Check logic flow.");
-		-- The BAG_UPDATE event gets called twice when recieving items from mail. Make sure we only work after the second of the two calls.
-	elseif ball.countToTwo == 1 then			
-			self:UnregisterEvent("BAG_UPDATE");
-			ball.countToTwo = -1;
-			-- Mark our current mail message profile(snapshot of what attachments are in the current message) as having this item removed.
-			ball.currentProfile[ball.itemIndex] = nil;
-			-- I use 'return' to call juggle (continue processing) so it'll quit this current function. I don't think the event stack will care about a return value.
-
-		return ZLM_iHoover_Juggle(eventframe);
-		-- increment if we're on the 1st BAG_UPDATE call
-	elseif ball.countToTwo == 0 then
-			ball.countToTwo = 1;
-		-- ball.countToTwo should only ever be 0 or 1 or -1(for not counting yet). If the value is different we've got errors to catch.
-	else
-			WMGE("Count error: Counter says ".. ball.countToTwo);	
-	end
-
+	return s < 4;
 end
 
-  -- Mail info doesn't adjust dynamically. You've gotta paint yourself a picture, holes, treasure and all.
-function ZLM_MessageProfile(Index)
-
-
-	local ball = ZLM_iHoover_SmartNozzle;
-	--Target mailbox item/index CAN be passed to this function as a utility, otherwise it just uses the async tracking variable.
-	local Index = Index or ball.Index;
-	local i;
-	local profile = {};
-		WMGE("4.2 Profiling message. Index: "..tostring(Index));
-
-	local packageIcon, stationeryIcon, sender, subject, money, CODAmount, daysLeft, hasItem, wasRead, wasReturned, 
-			textCreated, canReply, isGM = GetInboxHeaderInfo(ball.Index);
-	if hasItem and hasItem > 0 then
-	WMG_PROFILE[Index] = {}; -- debug.
-		for i=1, 12 do
-			
-			local name, itemID, itemTexture, count, canUse, quality = GetInboxItem(Index, i)
-			if itemID then
-				--WMGE("Mail "..Index.." item "..i.." = "..name);
-				profile[i] = {sender, itemID, count, name};  -- for easy unpack()'ing into the tallywhacker function arguments. 
-				WMG_PROFILE[Index][i] = 1; -- debug
-			else
-				--WMGE("Mail "..Index.." item slot "..i.." is empty.");
-				profile[i] = 0; -- nil might mess things up for array?
-				WMG_PROFILE[Index][i] = 0; -- debug
+function ZLM.Mail:BagsSnapshot()
+	Snapshot = {};
+	for i= 1-5 do
+		numberOfSlots = GetContainerNumSlots(bagID);
+		for for j = 1-numberOfSlots do
+			itemId = GetContainerItemID(i, j);
+			if itemId then
+				Snapshot[itemId] = Snapshot[itemId] or 0;
+				Snapshot[itemId] = snapshot[itemId] + select(2, GetContainerItemInfo(i,j))); -- select the 2nd return value (itemcount)
 			end
 		end
-
-	else
-		return 0; -- Message has no attachments.
 	end
-	--print(unpack(profile));
-	return profile; -- Return a 12 element array w/ the info needed for tallywacker recording of all items within. nil is returned if no attachments.
+	return Snapshot  
 end
 
 
--- ** Process functions.
 
-  -- Kick things off. Called by MAIL_SHOW Event, which is called when the mailbox is opened. To start test, just check your mail!
- function ZLM_iHoover_Start(eventframe, ...)
- 
-		-- initialize the tracking structure - ZLM_iHoover_SmartNozzle. Mail and bag events are asyncronous so we've gotta play a little sloppy, almost like multithread but not as neat.
-		WMGE("3. Starting",1);
-		local ball = ZLM_iHoover_SmartNozzle;
-		-- ball = {}; -- Always initialize to nothing. Just in case.
-		ball.countToTwo = -1; -- -1 means we're not ready to count yet, not waiting for an update.
-		ball.inbox_items = GetInboxNumItems();
-		
-		-- debug WMG_CHECKED variable initialization. 2D array, length: number of inbox items. each item has a 12 element array of it's own initialized with zeroes to be filled in later for debug purposes.
-		local i;
-		local j;
-		for i=1, ball.inbox_items do
-			WMG_CHECKED[i] = {};
-			WMG_PROFILE[i] = {};
+-- Blindly finds the first attachment available and sent from someone without a space in their name(probably a player).
+function ZLM.Mail:FindValidInboxItem()
+	inbox_items = GetInboxNumItems();
+	for i = 1, inbox_items do
+		local packageIcon, stationeryIcon, sender, subject, money, CODAmount, daysLeft, hasItem, wasRead, wasReturned, 
+textCreated, canReply, isGM = GetInboxHeaderInfo(i);
+		if sender then
+			sender = ZLM.Mail:FullName(sender); -- Returns name-server, of whatever you feed it. Nil if there's a space.
+		end
+		if hasItem and hasItem > 0 and not not sender then
 			for j = 1, 12 do
-				WMG_CHECKED[i][j] = 0;
-				WMG_PROFILE[i][j] = 0;
+				local name, itemID, texture, count, quality, canUse  = GetInboxItem(i, j);
+				if itemID then
+					return { sender, count, itemID, i, j };
+				end
 			end
 		end
-
-		if (ball.inbox_items > 0) then
-			WMGE("3.5 We've got "..ball.inbox_items.." mail(s)!",1);
-			ball.Index = 0; -- Starting at 0 for loop purposes. 1 is the first mail.
-			ball.itemIndex = 1;
-			WMGE("3.6 itemIndex = " .. ZLM_iHoover_SmartNozzle.itemIndex, 1);
-			
-			-- initial priming of juggling.
-			
-			 ZLM_iHoover_Juggle(eventframe);
-		end
-
-end
-
-  -- ACT II, our champion heroicly sorts the mail while the uncanny Zatenkein takes notes on a gleaming tallywhacker.
-function ZLM_iHoover_Juggle(eventframe)
-
-
-
-	-- Grab a shorthand version of the tracking object we have to use cuz asyncronous.
-	local ball = ZLM_iHoover_SmartNozzle;
-	ball.itemIndex = ball.itemIndex or -1;
-
-	--WMGE("4. Juggling. Index: "..ball.Index.." itemIndex: "..ball.itemIndex,1);
-	-- If we're starting a new mail, check bag space and get the profile of the next mail message with attachments.			
-	if ball.itemIndex == 1 or (type(ball.currentProfile) ~= "table") then
-		WMGE("4.1 Starting a new mail. Index = "..tostring(ball.Index + 1),1);
-		if ZLM_NoBagSpace() then
-			WMGE("5.0 Not enough room in bags.");
-			-- Reset	
-			return ZLM_iHoover_Cleanup(eventframe); -- using return as a break.
-		end
-
-		-- Dig till we find something shiney or hit bedrock.
-		repeat
-			
-			ball.Index = ball.Index + 1;
-			WMGE("4.2In profiling loop. Index:" ..tostring(ball.Index),1);
-			ball.currentProfile = ZLM_MessageProfile(); -- could call it with ball.Index argument, but it uses the async tracking variable automatically anyways.
-		until (type(ball.currentProfile) == "table") or ball.Index > ball.inbox_items; -- 'currentprofile' is nil if there are no attachments, and if we reach the end we're done.
-
-
-
-		-- If we're done, bail.
-		if ball.Index > ball.inbox_items then
-			WMGE("ball.Index > ball.inbox_items. " .. tostring(ball.Index).." > " .. tostring(ball.inbox_items),1);
-			return ZLM_iHoover_Cleanup(eventframe);
-		end
 	end
-
-
-
-	-- SHOULD always find the first available attachment. BAG_UPDATE handler will mark this spot in the profile as cleared/nil once it's actually taken.
-	ball.itemIndex = -1 -- To track if we've found anything.
-	if (type(ball.currentProfile) ~= "table") then
-			WMGE("ERR: Got nil profile.");
-			return ZLM_iHoover_Cleanup(eventframe);
-		--return;
-	else
-		for k, v in pairs(ball.currentProfile) do
-			if (type(v) == "table") then
-				WMGE("4.3 Found item at Index "..ball.Index.." position: "..k);
-				--WMGE(table.concat(ball.currentProfile[k]," "),1);
-				ball.itemIndex = k;
-				ball.currentProfile[k] = 0;
-				break;
-			else
-				--WMGE("No value key: "..k.." = "..tostring(v));
-			
-			end
-			--WMGE("Digging..");
-		end
-	end
-	if ball.itemIndex > 0 then
-		--Record, register for BAG_UPDATE, take item. End. The action of recieving the item(event:BAG_UPDATE) will kick the process off again.
-		--ZLM_TallyWhacker:REcordDonation(unpack(ball.currentProfile[ball.itemIndex]));
-		WMGE("4.4 Taking item, Index "..ball.Index.." position: "..ball.itemIndex);
-		ball.countToTwo = 1; -- Prime the oscillator.
-		WMG_CHECKED[ball.Index][ball.itemIndex] = 1;
-
-		--C_Timer.After(0.1,function() events:BAG_UPDATE(eventframe) end); -- DEBUG ONLY
-		WMG_FRAME:RegisterEvent("BAG_UPDATE");
-		TakeInboxItem(ball.Index,ball.itemIndex);
-		ball.itemIndex = -1; -- reset
-
-		-- if we're at the end of the message
-
-	else
-		
-		ball.itemIndex = 1;
-		WMGE("4.5 itemIndex not > 0.");
-		ZLM_iHoover_Juggle(eventframe);
-	end
-
+	return nil;
 end
 
 
-  -- The end... for now.
-function ZLM_iHoover_Cleanup(eventframe)
 
-	ball = ZLM_iHoover_SmartNozzle;
-	WMGE("5.2 Cleaning up. Index: "..ball.Index.." Item: " .. ball.itemIndex,1);
-	WMG_FRAME:UnregisterEvent("BAG_UPDATE");
-	ZLM_iHoover_SmartNozzle = {};
 
-	-- debug output
-	local Index = 1;
-	local Report = "Missed (mail/slot): \n";
 
-	if WMGEDEBUG > 0 then
-		for k, v in ipairs(WMG_PROFILE) do
-	
-			local itemIndex = 1;
-			for i, j in ipairs(WMG_PROFILE[Index]) do
+function ZLM.Mail:VerifiedTakeInboxItem(status)
 
-				if WMG_PROFILE[Index][itemIndex] == WMG_CHECKED[Index][itemIndex] then
-					-- G2G
+
+		Status = status or "INIT";
+
+	-- INIT and RETRY mean try and take the next item. RETRY, obviously, means try the same thing again.
+	if status == "INIT" or status == "RETRY" then
+
+		if ZLM.Mail:NoBagSpace() then return 2; end -- Not using the error code 2 at the moment, but it's there :P
+
+		ZLM.Mail.Snapshots.Bags.Before = ZLM.Mail:BagsSnapshot(); -- So that ZLM.BagsAfterSnapshot[ZLM.Mail:Current.ItemID] = ZLM.Mail.BeforeBagsSnapshot[ZLM.Mail.Current.ItemID] + ZLM.Mail.Current.Count  -- assuming bags before count was:    count or 0;
+
+		-- for INIT we have to get info for the next available item. RETRY doesn't need this step, so we do nothing, and try to take the same item again.
+		if status == "RETRY" then
+			-- just use the current tracking variables,ZLM.Mail.Current.ItemID, etc.
+		else 
+			-- Set tracking variables to the next bit of mail. 
+			local sender, count, itemID, Index, itemIndex = ZLM.Mail:FindValidInboxItem();
+			if sender then
+					ZLM.Mail.Current.ItemID = itemID;
+					ZLM.Mail.Current.Count = count;
+					ZLM.Mail.Current.Sender = sender;
+					ZLM.Mail.Current.Index = Index;
+					ZLM.Mail.Current.ItemIndex = itemIndex;
+			end
+		end
+
+		-- A successful retrieval leaves ZLM.Mail.Current.ItemID as nil. 
+		-- Only a newly located mail object, or a retry of an unverified retrieval would re-fill the variable.
+		-- Therefore if the variable .ItemID is not nil, we're good to try.
+		if not not ZLM.Mail.Current.ItemID then 
+			ZLM:RegisterEvent("BAG_UPDATE",function (optionalArg,eventName) ZLM.Mail:VerifyReciept(); end);
+			takeinboxitem(ZLM.Mail.Current.Index, ZLM.Mail.Current.ItemIndex);
+		end
+end
+	-- Check the math, if it doesn't pan out, do it over again.
+	--elseif status == "CONFIRM" 
+
+function ZLM.Mail:VerifyReciept()
+
+		ZLM:UnregisterEvent("BAG_UPDATE"); --
+		ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID] = ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID] or 0;
+		ZLM.Mail.Snapshots.Bags.After = ZLM.Mail:BagsSnapshot();
+
+		if ZLM.Mail.Snapshots.After[ZLM.Mail.Current.ItemID] == ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID] + ZLM.Mail.Current.Count then
+
+			-- record transaction.
+			ZLM:RecordDonation(ZLM.Mail:FullName(ZLM.Mail.Current.Sender),ZLM.Mail.Current.ItemID,ZLM.Mail.Current.Count);
+			ZLM.Mail.Current.ItemID = nil;
+			C_Timer.After(ZLM.Mail.NoDelay, function() ZLM.Mail:VerifiedTakeInboxItem("INIT") end);  -- Continue taking stuff if possible.
+			return 1;
+
+			--- make mail object nil.
+
+		else
+			
+			print("Debug: Failed to get mail at ".. ZLM.Mail.Current.Index.." item " ZLM.Mail.Current.ItemIndex.." retrying...");
+			C_Timer.After(ZLM.Mail.MailDelay, function() ZLM.Mail:VerifiedTakeInboxItem("RETRY") end);
+
+
+		end
+
+	end
+end
+
+
+
+
+-- =================================================================
+--						End of actual lua code
+-- =================================================================
+
+
+
+
+
+-- Snapshot mailbox
+
+Starting work = 1;
+
+function ZLM.Mail:
+
+	inbox_items = getinboxitems();
+
+	local slots taken up = 0;
+
+	for i= 1-inbox_items do   -- all mail items
+
+		, , , hasitems = getmessage(#)
+		if hasItems
+			
+			for j= 1-12 do
+				profile[i][j] = {ItemId, quantity};
+				if mailSnapshotbyID[ItemID] then
+					mailSnapshotbyID[ItemID] = mailSnapshotbyID[ItemID] + quantity;
 				else
-					if WMG_PROFILE[Index][itemIndex] > WMG_CHECKED[Index][itemIndex] then
-						Report = Report .. Index .. "/" .. itemIndex .. " " 
-					else
-					
-					end
+					mailSnapshotbyID[ItemID] = quantity;
 				end
-
-				if itemIndex < 12 then
-					itemIndex = itemIndex + 1;
-				elseif itemIndex == 12 then
-					Report = Report .. "\n";
-				end
+				slots taken up ++;
 			end
-
-			Index = Index + 1;
-
 		end
-		WMGE(Report);
 	end
 
-	return 1; -- in case lua wants a return value for a function called with return :P
-	-- UNREGISTER FOR BAG UPDATE.
-	-- reset tracking variable
+
+return mailSnapshotbyID; -- since the loop might want new versions.
+
+profile bags
+
+
+
+
+
+predicted bags afterwards
+
+for k, v in pairs(mailSnapshotbyID[ItemID]) do
+
+	bagprofilebyID[itemID] = bagprofilebyID[itemID]) or 0;
+	predictedprofilebyID[itemID] = bagprofilebyID[itemID] + v;
+	
 end
 
-C_Timer.After(4,function() Generic_EventLoader() end);
 
 
 
+
+
+
+pull all items
+
+
+if slots taken up => get bag space() then
+
+	take items(get bag space() - 3);
+
+end
+
+
+function take items()
+
+	for k, v in pairs(profile) do
+
+		for i, j in pairs(profile[k]) do
+			
+			if (type(j) == "table") then
+				
+				take inboxitem(i, j);	
+
+			end
+
+		end
+
+
+	end
+
+end
+
+
+evaluate
+
+-- possibly the most complicated part.
+local discrepancies = 0;
+local newbagprofilebyID = getbagprofile();
+
+
+for k, v in predictedprofilebyID do
+
+	newbagprofilebyID[k] = newbagprofilebyID[k] or 0;
+	if v == newbagprofilebyID[k] then
+
+		ZLM:RecordDonation(nameRealmCombo,itemId,quantity)
+	
+	elseif v == startingbagprofile[k] then
+
+		--not taken
+
+	else
+
+		discrepancies = discrepancies + 1;
+	end
+
+		
+
+end
+
+
+
+
+
+
+pull all items
+
+
+evaluate
+
+
+pull all items
+
+
+evaluate
+
+
+Loop in progress tracking variable.
+
+
+ZLM:UpdateScoreboard()
