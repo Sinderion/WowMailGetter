@@ -1,43 +1,98 @@
+-- =========
+--   Fake environment faking ZLM addon environment
+-- =========
 
 ZLM = LibStub("AceAddon-3.0"):NewAddon("ZatenkeinsLotteryManager", "AceConsole-3.0", "AceEvent-3.0");
-ZLM.Mail = {};
-ZLM.Mail.MailDelay = 0.1; -- Timer delay for taking mail. May need tuning.
-ZLM.Mail.NoDelay = 0.001; -- Timer delay for general multi-threaded work.
--- Fake function
+
+function ZLM:OnInitialize()
+    self.db = LibStub("AceDB-3.0"):New("ZatenkeinsLotteryManagerDB", defaults, true)
+
+    LibStub("AceConfig-3.0"):RegisterOptionsTable("ZatenkeinsLotteryManager", ZLM_OptionsTable, {"zlm"})
+    self.optionsFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("ZatenkeinsLotteryManager", "ZLM")
+    self:Print("ZLM Loaded");
+end
+
+function ZLM:Debug(message,severity)
+    if self.db.profile.PrintLevel > severity then
+        self.Print(message);
+    end
+end
+
+function ZLM:OnEnable()
+    --Register events here.
+    ZLM:RegisterEvent("MAIL_SHOW",function (optionalArg,eventName) ZLM.Mail:VerifiedTakeInboxItem("INIT"); end);
+end
+
+
+
+-- Fake functions
 function ZLM:RecordDonation() print("You recorded shit"); end
+function ZLM:UpdateScoreboard() print("Scoreboard Updated!"); end
+
+-- Temporary event handler just to get stuff happening.
+
+--[[
+WMG_FRAME = CreateFrame("Frame");
+WMG_FRAME:SetScript("OnEvent", 
+function(self, event, ...)
+
+	if event == "MAIL_SHOW" then
+
+		ZLM.Mail:VerifiedTakeInboxItem("INIT");
+
+	elseif event == "BAG_UPDATE" then
+
+		ZLM.Mail:VerifyReciept();
+
+	end
+
+
+end 
+
+);
+
+
+
+
+]]--
+
+--temp thing for the debug function. Overkill but who cares.
+ZLM.db = ZLM.db or {};
+ZLM.db.profile = ZLM.db.profile or {};
+ZLM.db.profile.PrintLevel = ZLM.db.profile.PrintLevel or 2;
+function ZLM:Debug(message,severity)
+    if self.db.profile.PrintLevel > severity then
+        self.Print(message);
+    end
+	-- ZLM:Debug(": " .. string.format("%s",value),1);
+end
+
+-- =========
+--   End of fake environment.
+-- =========
 
 
 -- ==========================================================================
 --					Mail crap for Zatenkeins Lottery Manager
 -- ==========================================================================
-
 ZLM.Mail = {};
 ZLM.Mail.MailDelay = 0.1; -- Timer delay for taking mail. May need tuning.
 ZLM.Mail.NoDelay = 0.001; -- Timer delay for general multi-threaded work.
 ZLM.Mail.Snapshots = {};
 ZLM.Mail.Snapshots.Bags = {};
---ZLM.Mail.CheckStatus = "IDLE";   -- "IDLE"  "WAITING" "CONFIRMED" "PROCESSING"
-ZLM.Mail.Current = {};
-ZLM.Mail.Current.ItemID = 0;
-ZLM.Mail.Current.Count = 0;       -- count of said item in processing.
-ZLM.Mail.Current.Sender = 0;
-ZLM.Mail.Current.Index = 0;
-ZLM.Mail.Current.ItemIndex = 0;
-ZLM.Mail.Snapshots.Bags.Before = 0;
-ZLM.Mail.Snapshots.Bags.After = 0;
-
--- Sinderion -> Sinderion-ShadowCouncil (add server name to same-server sender);   Xaionics-BlackwaterRaiders -> Xaionics-BlackwaterRaiders (no change if it's already full)
 function ZLM.Mail:Fullname(name)
-
-		--insert code here to return the name-server name no matter the name given, assuming the argument is a real name, return nil if not a real player name.
-		-- Possibly tuck legit name validation in here, since RP and other mail usuallly has spaces in the name.
-
+-- Sinderion -> Sinderion-ShadowCouncil (add server name to same-server sender);   Xaionics-BlackwaterRaiders -> Xaionics-BlackwaterRaiders (no change if it's already full)
+	if type(name) ~= "string" then
+		return nil;
+	end
+	if string.match(name," ") then
+		name = nil;  -- not a character, skip it.
+	elseif string.match(name,"-") then -- Name already full, do nothing :)
+	else
+		name = name .. "-" .. GetRealmName(); -- Name needs some TLC. Might accidentally get NPC's with one name. Oh well lol.
+	end
 	return name;
-
-
 end
-
-
 function ZLM.Mail:NoBagSpace()
 	local s=0 
 	for i=1,5 do
@@ -45,7 +100,6 @@ function ZLM.Mail:NoBagSpace()
 	end
 	return s < 4;
 end
-
 function ZLM.Mail:BagsSnapshot()
 	Snapshot = {};
 	for i= 1-5 do
@@ -60,11 +114,8 @@ function ZLM.Mail:BagsSnapshot()
 	end
 	return Snapshot  
 end
-
-
-
--- Blindly finds the first attachment available and sent from someone without a space in their name(probably a player).
 function ZLM.Mail:FindValidInboxItem()
+-- Blindly finds the first attachment available and sent from someone without a space in their name(probably a player).
 	inbox_items = GetInboxNumItems();
 	for i = 1, inbox_items do
 		local packageIcon, stationeryIcon, sender, subject, money, CODAmount, daysLeft, hasItem, wasRead, wasReturned, 
@@ -83,78 +134,52 @@ textCreated, canReply, isGM = GetInboxHeaderInfo(i);
 	end
 	return nil;
 end
+function ZLM.Mail:PitchMail(Index,itemIndex)
 
-
-
-
-
+			ZLM:RegisterEvent("BAG_UPDATE",function (optionalArg,eventName) ZLM.Mail:VerifyReciept(); end);
+			takeinboxitem(Index, itemIndex);
+end
 function ZLM.Mail:VerifiedTakeInboxItem(status)
-
-
-		Status = status or "INIT";
-
-	-- INIT and RETRY mean try and take the next item. RETRY, obviously, means try the same thing again.
-	if status == "INIT" or status == "RETRY" then
-
-		if ZLM.Mail:NoBagSpace() then return 2; end -- Not using the error code 2 at the moment, but it's there :P
-
-		ZLM.Mail.Snapshots.Bags.Before = ZLM.Mail:BagsSnapshot(); -- So that ZLM.BagsAfterSnapshot[ZLM.Mail:Current.ItemID] = ZLM.Mail.BeforeBagsSnapshot[ZLM.Mail.Current.ItemID] + ZLM.Mail.Current.Count  -- assuming bags before count was:    count or 0;
-
-		-- for INIT we have to get info for the next available item. RETRY doesn't need this step, so we do nothing, and try to take the same item again.
-		if status == "RETRY" then
-			-- just use the current tracking variables,ZLM.Mail.Current.ItemID, etc.
-		else 
-			-- Set tracking variables to the next bit of mail. 
+	Status = status or "INIT"
+	if status == "INIT" or status == "RETRY" then  	-- INIT and RETRY mean try and take the next item. RETRY, obviously, means try the same thing again.
+		ZLM.Mail.Snapshots.Bags.Before = ZLM.Mail:BagsSnapshot();
+		if ZLM.Mail:NoBagSpace() then  
+			ZLM.Mail.Current.ItemID = nil; -- Full bags, no item to grab.
+			print("Bags full!"); -- Maybe change, or add a normal red middle of screen frame warning using standard error method.
+		elseif status == "RETRY" then -- just use the current tracking variables,ZLM.Mail.Current.ItemID, etc.
+		else -- Set tracking variables to the next bit of mail. 
 			local sender, count, itemID, Index, itemIndex = ZLM.Mail:FindValidInboxItem();
 			if sender then
-					ZLM.Mail.Current.ItemID = itemID;
-					ZLM.Mail.Current.Count = count;
-					ZLM.Mail.Current.Sender = sender;
-					ZLM.Mail.Current.Index = Index;
-					ZLM.Mail.Current.ItemIndex = itemIndex;
+				ZLM.Mail.Current = {
+				ItemID = itemID,
+				Count = count,
+				Sender = sender,
+				Index = Index,
+				ItemIndex = itemIndex
+				}
 			end
-		end
-
-		-- A successful retrieval leaves ZLM.Mail.Current.ItemID as nil. 
-		-- Only a newly located mail object, or a retry of an unverified retrieval would re-fill the variable.
-		-- Therefore if the variable .ItemID is not nil, we're good to try.
+		end -- nil if no mail left, or no bag space. Otherwise there's SOMETHING to check, so check.
 		if not not ZLM.Mail.Current.ItemID then 
-			ZLM:RegisterEvent("BAG_UPDATE",function (optionalArg,eventName) ZLM.Mail:VerifyReciept(); end);
-			takeinboxitem(ZLM.Mail.Current.Index, ZLM.Mail.Current.ItemIndex);
+			ZLM.Mail:PitchMail(ZLM.Mail.Current.Index, ZLM.Mail.Current.ItemIndex);
+		else --end?
+			ZLM:UpdateScoreboard();
+			ZLM:Debug("itemID = nil for whatever reason. Exiting.", 1);
 		end
+	end
 end
-	-- Check the math, if it doesn't pan out, do it over again.
-	--elseif status == "CONFIRM" 
-
 function ZLM.Mail:VerifyReciept()
-
 		ZLM:UnregisterEvent("BAG_UPDATE"); --
 		ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID] = ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID] or 0;
 		ZLM.Mail.Snapshots.Bags.After = ZLM.Mail:BagsSnapshot();
-
 		if ZLM.Mail.Snapshots.After[ZLM.Mail.Current.ItemID] == ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID] + ZLM.Mail.Current.Count then
-
-			-- record transaction.
 			ZLM:RecordDonation(ZLM.Mail:FullName(ZLM.Mail.Current.Sender),ZLM.Mail.Current.ItemID,ZLM.Mail.Current.Count);
 			ZLM.Mail.Current.ItemID = nil;
-			C_Timer.After(ZLM.Mail.NoDelay, function() ZLM.Mail:VerifiedTakeInboxItem("INIT") end);  -- Continue taking stuff if possible.
-			return 1;
-
-			--- make mail object nil.
-
+			C_Timer.After(ZLM.Mail.NoDelay, function() ZLM.Mail:VerifiedTakeInboxItem("INIT") end);  
 		else
-			
-			print("Debug: Failed to get mail at ".. ZLM.Mail.Current.Index.." item " ZLM.Mail.Current.ItemIndex.." retrying...");
+			ZLM:Debug("Debug: Failed to get mail at ".. ZLM.Mail.Current.Index.." item " ZLM.Mail.Current.ItemIndex.." retrying...",0);
 			C_Timer.After(ZLM.Mail.MailDelay, function() ZLM.Mail:VerifiedTakeInboxItem("RETRY") end);
-
-
 		end
-
-	end
 end
-
-
-
 
 -- =================================================================
 --						End of actual lua code
@@ -164,132 +189,5 @@ end
 
 
 
--- Snapshot mailbox
 
-Starting work = 1;
 
-function ZLM.Mail:
-
-	inbox_items = getinboxitems();
-
-	local slots taken up = 0;
-
-	for i= 1-inbox_items do   -- all mail items
-
-		, , , hasitems = getmessage(#)
-		if hasItems
-			
-			for j= 1-12 do
-				profile[i][j] = {ItemId, quantity};
-				if mailSnapshotbyID[ItemID] then
-					mailSnapshotbyID[ItemID] = mailSnapshotbyID[ItemID] + quantity;
-				else
-					mailSnapshotbyID[ItemID] = quantity;
-				end
-				slots taken up ++;
-			end
-		end
-	end
-
-
-return mailSnapshotbyID; -- since the loop might want new versions.
-
-profile bags
-
-
-
-
-
-predicted bags afterwards
-
-for k, v in pairs(mailSnapshotbyID[ItemID]) do
-
-	bagprofilebyID[itemID] = bagprofilebyID[itemID]) or 0;
-	predictedprofilebyID[itemID] = bagprofilebyID[itemID] + v;
-	
-end
-
-
-
-
-
-
-
-pull all items
-
-
-if slots taken up => get bag space() then
-
-	take items(get bag space() - 3);
-
-end
-
-
-function take items()
-
-	for k, v in pairs(profile) do
-
-		for i, j in pairs(profile[k]) do
-			
-			if (type(j) == "table") then
-				
-				take inboxitem(i, j);	
-
-			end
-
-		end
-
-
-	end
-
-end
-
-
-evaluate
-
--- possibly the most complicated part.
-local discrepancies = 0;
-local newbagprofilebyID = getbagprofile();
-
-
-for k, v in predictedprofilebyID do
-
-	newbagprofilebyID[k] = newbagprofilebyID[k] or 0;
-	if v == newbagprofilebyID[k] then
-
-		ZLM:RecordDonation(nameRealmCombo,itemId,quantity)
-	
-	elseif v == startingbagprofile[k] then
-
-		--not taken
-
-	else
-
-		discrepancies = discrepancies + 1;
-	end
-
-		
-
-end
-
-
-
-
-
-
-pull all items
-
-
-evaluate
-
-
-pull all items
-
-
-evaluate
-
-
-Loop in progress tracking variable.
-
-
-ZLM:UpdateScoreboard()

@@ -4,4 +4,5 @@
 ## Author: Sinderion@Shadow Council
 ## Version: 0.01
 
+embeds.xml
 WowMailGetter.lua
