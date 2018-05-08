@@ -12,6 +12,8 @@ function ZLM:OnInitialize()
     self:Print("ZLM Loaded");
 end
 
+
+
 function ZLM:Debug(message,severity)
     if self.db.profile.PrintLevel > severity then
         self.Print(message);
