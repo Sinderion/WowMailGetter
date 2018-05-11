@@ -79,13 +79,20 @@ end
 
 function ZLM:OnEnable()
     --Register events here.
-    ZLM:RegisterEvent("MAIL_SHOW",function (optionalArg,eventName) ZLM.Mail:VerifiedTakeInboxItem("INIT"); end);
+    ZLM:RegisterEvent("MAIL_SHOW",function (optionalArg,eventName) C_Timer.After(ZLM.Mail.Delays.Load, function() ZLM.Mail:VerifiedTakeInboxItem(ZLM.MailStates.Intialize); end); end);
 end
 
 
 
 -- Fake functions
-function ZLM:RecordDonation() print("You recorded shit"); end
+function ZLM:RecordDonation(sender,itemID,count)
+	
+	if not not sender then
+		print("You recorded: " .. sender.. " " .. itemID.." " .. count); 
+	else
+		print("Invalid sender");
+	end
+end
 function ZLM:UpdateScoreboard() print("Scoreboard Updated!"); end
 
 -- Temporary event handler just to get stuff happening.
@@ -137,8 +144,15 @@ end
 --					Mail crap for Zatenkeins Lottery Manager
 -- ==========================================================================
 ZLM.Mail = {};
-ZLM.Mail.MailDelay = 0.1; -- Timer delay for taking mail. May need tuning.
-ZLM.Mail.NoDelay = 0.001; -- Timer delay for general multi-threaded work.
+ZLM.Mail.Delays = { TakeItem = 0.1, Load = 1, NoDelay = 0.001, Retry = 0.5 }
+--ZLM.Mail.MailDelay = 0.1; -- Timer delay for taking mail. May need tuning.
+--ZLM.Mail.LoadDelay = 1;   -- Account for lag when loading mail for the first time.
+--ZLM.Mail.NoDelay = 0.001; -- Timer delay for general multi-threaded work.
+ZLM.MailStates = { Intialize = "INIT", Retry = "RETRY", Wait = "WAIT"}
+ZLM.Mail.Serial = 0;
+ZLM.Mail.Current = {};
+ZLM.Mail.Current.ItemID = 0;
+ZLM.Mail.Current.State = ZLM.MailStates.Intialize;
 ZLM.Mail.Snapshots = {};
 ZLM.Mail.Snapshots.Bags = {};
 ZLM_TOTALATTEMPTS = 0;
@@ -155,7 +169,7 @@ function ZLM.Mail:FullName(name)
 	else
 		name = name .. "-" .. GetRealmName(); -- Name needs some TLC. Might accidentally get NPC's with one name. Oh well lol.
 	end
-	ZLM:Debug(name, 2);
+	--ZLM:Debug(name, 2);
 	return name;
 end
 function ZLM.Mail:NoBagSpace()
@@ -169,9 +183,11 @@ function ZLM.Mail:BagsSnapshot()
 	local Snapshot = {};
 	for i= 1, 5 do
 		numberOfSlots = GetContainerNumSlots(i);
+		--print(numberOfSlots);
 		for j = 1, numberOfSlots do
 			itemId = GetContainerItemID(i, j);
-			if itemId then
+			if not not itemId then
+				--print("itemID: "..itemId);
 				Snapshot[itemId] = Snapshot[itemId] or 0;
 				Snapshot[itemId] = Snapshot[itemId] + select(2, GetContainerItemInfo(i,j)); -- select the 2nd return value (itemcount)
 			end
@@ -181,7 +197,7 @@ function ZLM.Mail:BagsSnapshot()
 end
 function ZLM.Mail:FindValidInboxItem()
 -- Blindly finds the first attachment available and sent from someone without a space in their name(probably a player).
-	inbox_items = GetInboxNumItems();
+	inbox_items, total_items = GetInboxNumItems();
 	for i = 1, inbox_items do
 		local packageIcon, stationeryIcon, sender, subject, money, CODAmount, daysLeft, hasItem, wasRead, wasReturned, 
 textCreated, canReply, isGM = GetInboxHeaderInfo(i);
@@ -191,67 +207,137 @@ textCreated, canReply, isGM = GetInboxHeaderInfo(i);
 		if hasItem and hasItem > 0 and not not sender then
 			for j = 1, 12 do
 				local name, itemID, texture, count, quality, canUse  = GetInboxItem(i, j);
-				if itemID then
-					print(sender .. name);
-					return { sender, count, itemID, i, j };
+				--print("ItemID: ".. itemID);
+				if not not itemID then
+					--print("ItemID found");
+					
+					ZLM.Mail.Current = {
+						ItemID = itemID,
+						Count = count,
+						Sender = sender,
+						Index = i,
+						ItemIndex = j
+				}
+					--return sender, count, itemID, i, j 
 				end
 			end
 		end
 	end
 	return nil;
 end
-function ZLM.Mail:PitchMail(Index,itemIndex)
 
-			ZLM:RegisterEvent("BAG_UPDATE",function (optionalArg,eventName) ZLM.Mail:VerifyReciept(); end);
-			takeinboxitem(Index, itemIndex);
+function ZLM.Mail:OnBag_Update(...)
+
+	--print("BAG_UPDATE");
+	if ZLM.Mail.Current.State == ZLM.MailStates.Wait then return; end -- Only process if we're not processing.
+	ZLM.Mail.Current.State = ZLM.MailStates.Wait;
+	ZLM.Mail:VerifyReciept();
+
+
+end
+
+function ZLM.Mail:Stuck(serial)
+
+	if serial == ZLM.Mail.Serial then
+		print("stuck");
+		return 1;
+
+	else
+		return nil;
+	end
+
+end
+
+
+
+function ZLM.Mail:PitchMail(Index,itemIndex, serial)
+			
+
+	ZLM:RegisterEvent("BAG_UPDATE",
+		function (optionalArg,eventName)
+				
+			C_Timer.After(0.2, function() ZLM.Mail:OnBag_Update(optionalArg, eventName); end); 
+		end);
+			C_Timer.After(0.7, function()
+
+				if ZLM.Mail:Stuck(serial) then
+					ZLM.Mail:FindValidInboxItem();
+					ZLM.Mail:VerifiedTakeInboxItem(ZLM.MailStates.Intialize);
+				end
+
+			end);
+			
+			TakeInboxItem(Index, itemIndex);
 end
 function ZLM.Mail:VerifiedTakeInboxItem(status)
-	Status = status or "INIT"
+	
+
+	local status = status or ZLM.MailStates.Intialize
+	ZLM.Mail.Current.State = ZLM.MailStates.Wait;  -- "WAIT"
 	ZLM.Mail.Current = ZLM.Mail.Current or {};
-		ZLM.Mail.Snapshots.Bags.Before = ZLM.Mail:BagsSnapshot();
+		
 		if ZLM.Mail:NoBagSpace() then  
 			ZLM.Mail.Current.ItemID = nil; -- Full bags, no item to grab.
 			print("Bags full!"); -- Maybe change, or add a normal red middle of screen frame warning using standard error method.
-		elseif status == "RETRY" then -- just use the current tracking variables,ZLM.Mail.Current.ItemID, etc.
+		elseif status == ZLM.MailStates.Retry then -- just use the current tracking variables,ZLM.Mail.Current.ItemID, etc.
 			ZLM_TOTALRETRIES = ZLM_TOTALRETRIES + 1;
+
+			print("Really retrying, srsly. ItemID: ".. ZLM.Mail.Current.ItemID.." Index: "..ZLM.Mail.Current.Index.." indexItem: ".. ZLM.Mail.Current.Index);
 		else -- Set tracking variables to the next bit of mail. 
-			local sender, count, itemID, Index, itemIndex = ZLM.Mail:FindValidInboxItem();
-			if sender then
-				ZLM.Mail.Current = {
-				ItemID = itemID,
-				Count = count,
-				Sender = sender,
-				Index = Index,
-				ItemIndex = itemIndex
-				}
+			ZLM.Mail.Snapshots.Bags.Before = ZLM.Mail:BagsSnapshot();
+			ZLM.Mail:FindValidInboxItem();
+			--local sender, count, itemID, Index, itemIndex = ZLM.Mail:FindValidInboxItem();
+			--print(itemID);
+			if not not ZLM.Mail.Current.Sender then
 				print(ZLM.Mail.Current.ItemID);
 			else
 			    ZLM:Debug("Can't find anymore mail.", 1);
 			end
 		end -- nil if no mail left, or no bag space. Otherwise there's SOMETHING to check, so check.
+			ZLM.Mail.Current.State = ZLM.MailStates.Intialize ;  -- "INIT"
 		if not not ZLM.Mail.Current.ItemID then 
-		    ZLM_TOTALATTEMPTS = ZLM_TOTALATTEMPTS + 1;
-			ZLM.Mail:PitchMail(ZLM.Mail.Current.Index, ZLM.Mail.Current.ItemIndex);
+			    ZLM_TOTALATTEMPTS = ZLM_TOTALATTEMPTS + 1;
+				ZLM.Mail.Serial = ZLM.Mail.Serial + 1;
+			C_Timer.After( 0.1, function() ZLM.Mail:PitchMail(ZLM.Mail.Current.Index, ZLM.Mail.Current.ItemIndex, ZLM.Mail.Serial); end);
+
+		   -- ZLM_TOTALATTEMPTS = ZLM_TOTALATTEMPTS + 1;
+			--ZLM.Mail:PitchMail(ZLM.Mail.Current.Index, ZLM.Mail.Current.ItemIndex);
 		else --end?
 			ZLM:UpdateScoreboard();
 			ZLM:Debug("Total: ".. ZLM_TOTALATTEMPTS .." Retries: " .. ZLM_TOTALRETRIES.. " Success: ".. ZLM_TOTALSUCCESSES, 1);
 			ZLM:Debug("itemID = nil for whatever reason. Exiting.", 1);
 		end
 
+
 end
 function ZLM.Mail:VerifyReciept()
+
+
+		if not ZLM.Mail.Current.ItemID then 
+			print("ItemID not filled out, aborting."); 
+			return; 
+		end; -- Inappropriate BAG_UPDATE call or something.
 		ZLM:UnregisterEvent("BAG_UPDATE"); --
-		ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID] = ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID] or 0;
 		ZLM.Mail.Snapshots.Bags.After = ZLM.Mail:BagsSnapshot();
-		if ZLM.Mail.Snapshots.After[ZLM.Mail.Current.ItemID] == ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID] + ZLM.Mail.Current.Count then
-			ZLM:RecordDonation(ZLM.Mail:FullName(ZLM.Mail.Current.Sender),ZLM.Mail.Current.ItemID,ZLM.Mail.Current.Count);
+
+		ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID] = ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID] or 0;
+		ZLM.Mail.Snapshots.Bags.After[ZLM.Mail.Current.ItemID] = ZLM.Mail.Snapshots.Bags.After[ZLM.Mail.Current.ItemID] or 0;
+		if ZLM.Mail.Snapshots.Bags.After[ZLM.Mail.Current.ItemID] >= ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID] + ZLM.Mail.Current.Count then
+			print("Successfully got ItemID: ".. ZLM.Mail.Current.ItemID.." Index: "..ZLM.Mail.Current.Index.." indexItem: ".. ZLM.Mail.Current.Index);			
+			ZLM:RecordDonation(ZLM.Mail.Current.Sender,ZLM.Mail.Current.ItemID,ZLM.Mail.Current.Count);
+			print("After: " ..ZLM.Mail.Snapshots.Bags.After[ZLM.Mail.Current.ItemID].." Before: "..ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID].." Current: ".. ZLM.Mail.Current.Count);			
 			ZLM.Mail.Current.ItemID = nil;
 			ZLM_TOTALSUCCESSES = ZLM_TOTALSUCCESSES + 1;
-			C_Timer.After(ZLM.Mail.NoDelay, function() ZLM.Mail:VerifiedTakeInboxItem("INIT") end);  
+
+			C_Timer.After(0.1 , function() ZLM.Mail:VerifiedTakeInboxItem(ZLM.MailStates.Intialize) end);  
 		else
+			
 			ZLM:Debug("Debug: Failed to get mail at ".. ZLM.Mail.Current.Index.." item " ..ZLM.Mail.Current.ItemIndex.." retrying...",0);
-			C_Timer.After(ZLM.Mail.MailDelay, function() ZLM.Mail:VerifiedTakeInboxItem("RETRY") end);
+			print("After: " ..ZLM.Mail.Snapshots.Bags.After[ZLM.Mail.Current.ItemID].." Before: "..ZLM.Mail.Snapshots.Bags.Before[ZLM.Mail.Current.ItemID].." Current: ".. ZLM.Mail.Current.Count);
+			C_Timer.After(0.1, function() ZLM.Mail:VerifiedTakeInboxItem(ZLM.MailStates.Retry) end);
 		end
+		ZLM.Mail.Current.State = ZLM.MailStates.Intialize ;  -- "INIT"
+		ZLM.Mail.Serial = ZLM.Mail.Serial + 1;
 end
 
 -- =================================================================
