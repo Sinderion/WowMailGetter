@@ -238,7 +238,7 @@ end
 
 function ZLM.Mail:Stuck(serial)
 
-	if serial == ZLM.Mail.Serial then
+	if serial == ZLM.Mail.Serial and MailFrame:IsVisible() then
 		print("stuck");
 		return 1;
 
@@ -252,6 +252,8 @@ end
 
 function ZLM.Mail:PitchMail(Index,itemIndex, serial)
 			
+	if not Index or not itemIndex or not serial then return; end
+
 
 	ZLM:RegisterEvent("BAG_UPDATE",
 		function (optionalArg,eventName)
@@ -267,7 +269,7 @@ function ZLM.Mail:PitchMail(Index,itemIndex, serial)
 
 			end);
 			
-			TakeInboxItem(Index, itemIndex);
+			TakeInboxItem(ZLM.Mail.Current.Index, ZLM.Mail.Current.ItemIndex);
 end
 function ZLM.Mail:VerifiedTakeInboxItem(status)
 	
